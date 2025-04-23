@@ -45,12 +45,9 @@
     }
 
     // Load and process deer harvest data
-    async function loadHarvestData() {
-      try {
-        const response = await fetch('./deerHarvest2024.json');
-        if (!response.ok) throw new Error('Failed to load deerHarvest2024.json');
-        const data = await response.json();
-
+    fetch('./deerHarvest2024.json')
+      .then(response => response.json())
+      .then(data => {
         // Filter for 2024 records and create lookup object
         const harvest2024 = {};
         let minHarvest = Infinity, maxHarvest = -Infinity;
@@ -67,51 +64,36 @@
             }
           });
 
-        return {harvest2024, minHarvest, maxHarvest};
-      } catch (error) {
-        console.error('Error loading harvest data:', error);
-        alert('Failed to load deer harvest data. Please ensure deerHarvest2024.json is uploaded to Replit.');
-        return {harvest2024: {}, minHarvest: 0, maxHarvest: 0};
-      }
-    }
-
-    // Load and add WMU GeoJSON with harvest-based coloring
-    async function loadWMUBoundaries() {
-      const {harvest2024, minHarvest, maxHarvest} = await loadHarvestData();
-      const geojsonUrl = './wmu-boundaries.geojson'; // Assumes GeoJSON is uploaded to Replit
-
-      try {
-        const response = await fetch(geojsonUrl);
-        if (!response.ok) throw new Error('Network response was not ok');
-        const data = await response.json();
-
-        L.geoJSON(data, {
-          style: feature => {
-            const wmuId = feature.properties.OFFICIAL_NAME;
-            const harvest = harvest2024[wmuId] || 0;
-            return {
-              color: '#ff7800',
-              weight: 2,
-              opacity: 0.8,
-              fillColor: getColor(harvest, minHarvest, maxHarvest),
-              fillOpacity: 0.5
-            };
-          },
-          onEachFeature: (feature, layer) => {
-            const wmuId = feature.properties.OFFICIAL_NAME || 'Unknown WMU';
-            const harvest = harvest2024[wmuId] || 0;
-            console.log(`WMU ${wmuId}: Harvest = ${harvest}`); // Debug
-
-            // Bind tooltip with WMU ID and harvest
-            layer.bindTooltip(`WMU ${wmuId}: ${harvest} deer`, {
-              sticky: true,
-              opacity: 0.9
-            });
-
-            // Hover events
-            layer.on({
-              mouseover: () => {
-                layer.setStyle({fillOpacity: 0.7});
-                layer.openTooltip();
+        // Load and add WMU boundaries with colors based on harvest data
+        fetch('./wmu-boundaries.geojson')
+          .then(response => response.json())
+          .then(geojson => {
+            L.geoJSON(geojson, {
+              style: feature => {
+                const wmuId = feature.properties.OFFICIAL_NAME;
+                const harvest = harvest2024[wmuId] || 0;
+                return {
+                  fillColor: getColor(harvest, minHarvest, maxHarvest),
+                  color: '#666',
+                  weight: 1,
+                  opacity: 1,
+                  fillOpacity: 0.7
+                };
               },
-              mouse
+              onEachFeature: (feature, layer) => {
+                const wmuId = feature.properties.OFFICIAL_NAME;
+                const harvest = harvest2024[wmuId] || 0;
+                layer.bindTooltip(`WMU ${wmuId}: ${harvest} deer harvested`, {
+                  sticky: true,
+                  opacity: 0.9
+                });
+              }
+            }).addTo(map);
+          })
+          .catch(error => console.error('Error loading GeoJSON:', error));
+      })
+      .catch(error => console.error('Error loading harvest data:', error));
+  </script>
+</body>
+
+</html>
