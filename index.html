@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ontario WMU Map with Deer Harvest</title>
+  <title>Ontario WMU Map with Harvest Data</title>
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
@@ -13,16 +12,34 @@
       padding: 0;
       font-family: Arial, sans-serif;
     }
-
     #map {
       height: 100vh;
       width: 100%;
     }
+    #species-select {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 1000;
+      padding: 8px;
+      font-size: 16px;
+      background-color: white;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
   </style>
 </head>
-
 <body>
   <div id="map"></div>
+  <select id="species-select">
+    <option value="deer-total">Deer Harvest</option>
+    <option value="deer-doe">Doe Harvest</option>
+    <option value="deer-buck">Buck Harvest</option>
+    <option value="bear">Bear Harvest</option>
+    <option value="turkey">Turkey Harvest</option>
+    <option value="moose">Moose Harvest</option>
+    <option value="wolf">Wolf/Coyote Harvest</option>
+  </select>
 
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -35,65 +52,266 @@
       attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
 
+    // Function to get parent WMU ID (e.g., "WMU15A" -> "15A", "15A" -> "15")
+    function getParentWMU(wmuId) {
+      if (!wmuId) return 'Unknown';
+      // Remove prefixes like "WMU" and suffixes like "A", "B"
+      let normalized = wmuId.replace(/^WMU/i, '').replace(/-[A-Z]$/, '').replace(/[A-Z]$/, '');
+      return normalized || 'Unknown';
+    }
+
     // Function to interpolate colors for heatmap
-    function getColor(value, minVal, maxVal) {
-      if (value === 0 || isNaN(value)) return '#FFFFCC'; // Light yellow for zero or missing
+    function getColor(harvestObj, minVal, maxVal) {
+      if (harvestObj.isNull) return '#808080'; // Gray for no data
+      const value = harvestObj.value;
+      if (value === 0 || isNaN(value)) return '#FFFFCC'; // Light yellow for zero
       const ratio = (value - minVal) / (maxVal - minVal);
       const r = Math.min(255, Math.round(255 * ratio));
       const g = Math.round(255 * (1 - ratio));
       return `rgb(${r},${g},0)`; // Yellow to red gradient
     }
 
-    // Load and process deer harvest data
-    fetch('./deerHarvest2024.json')
-      .then(response => response.json())
-      .then(data => {
-        // Filter for 2024 records and create lookup object
-        const harvest2024 = {};
-        let minHarvest = Infinity, maxHarvest = -Infinity;
+    // Global variables
+    let deerHarvest2024 = {};
+    let doeHarvest2024 = {};
+    let buckHarvest2024 = {};
+    let bearHarvest2024 = {};
+    let turkeyHarvest2024 = {};
+    let mooseHarvest2024 = {};
+    let wolfHarvest2024 = {};
+    let currentDataset = {
+      data: deerHarvest2024,
+      species: 'deer',
+      column: 'Total Harvest'
+    };
+    let geojsonLayer = null; // Store the GeoJSON layer
+    let minHarvest = Infinity, maxHarvest = -Infinity;
 
-        data.records
-          .filter(record => record[2] === "2024" && record[1] !== "Total")
-          .forEach(record => {
-            const wmuId = record[1].trim(); // Normalize WMU ID
-            const totalHarvest = record[6] === "NULL" ? 0 : parseInt(record[6], 10);
-            harvest2024[wmuId] = totalHarvest;
-            if (totalHarvest > 0) {
-              minHarvest = Math.min(minHarvest, totalHarvest);
-              maxHarvest = Math.max(maxHarvest, totalHarvest);
+    // Function to process harvest data
+    function processHarvestData(data, datasetType) {
+      const harvestData = {};
+      minHarvest = Infinity;
+      maxHarvest = -Infinity;
+
+      let harvestColumn, isDeer;
+      if (datasetType === 'deer-total') {
+        harvestColumn = 6; // Total Harvest
+        isDeer = true;
+      } else if (datasetType === 'deer-doe') {
+        harvestColumn = 4; // Antlerless
+        isDeer = true;
+      } else if (datasetType === 'deer-buck') {
+        harvestColumn = 5; // Antlered
+        isDeer = true;
+      } else if (datasetType === 'bear') {
+        harvestColumn = 4; // Harvest
+        isDeer = false;
+      } else if (datasetType === 'turkey') {
+        harvestColumn = 5; // Total Harvest
+        isDeer = false;
+      } else if (datasetType === 'moose') {
+        harvestColumn = 7; // Total Harvest
+        isDeer = false;
+      } else if (datasetType === 'wolf') {
+        harvestColumn = 4; // Harvest
+        isDeer = false;
+      }
+
+      console.log(`Processing ${datasetType} data:`, data.records.length, 'records'); // Debug
+      const filteredRecords = data.records
+        .filter(record => String(record[2]) === "2024" && record[1] !== "Total");
+      console.log(`Filtered ${datasetType} 2024 records:`, filteredRecords.length); // Debug
+
+      filteredRecords.forEach(record => {
+        const wmuId = record[1].trim();
+        const isNull = isDeer ? record[harvestColumn] === "NULL" : false;
+        const totalHarvest = isNull ? 0 : parseInt(record[harvestColumn], 10);
+        harvestData[wmuId] = { value: totalHarvest, isNull };
+        if (!isNull && totalHarvest > 0) {
+          minHarvest = Math.min(minHarvest, totalHarvest);
+          maxHarvest = Math.max(maxHarvest, totalHarvest);
+        }
+      });
+
+      return harvestData;
+    }
+
+    // Function to update the map with the selected dataset
+    function updateMap() {
+      const harvestData = currentDataset.data;
+      const speciesName = currentDataset.species;
+
+      // Remove existing GeoJSON layer
+      if (geojsonLayer) {
+        map.removeLayer(geojsonLayer);
+      }
+
+      // Load and add WMU boundaries
+      fetch('./wmu-boundaries.json')
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`Failed to load wmu-boundaries.json: ${response.status} ${response.statusText}`);
+          }
+          return response.json();
+        })
+        .then(geojson => {
+          if (geojson.features && geojson.features.length > 0) {
+            console.log('GeoJSON First Feature Properties:', geojson.features[0].properties);
+          } else {
+            console.warn('No features found in GeoJSON');
+          }
+          geojsonLayer = L.geoJSON(geojson, {
+            style: feature => {
+              const wmuId = feature.properties.OFFICIAL_NAME || 'Unknown';
+              const parentWMU = getParentWMU(wmuId);
+              const harvestObj = harvestData[wmuId] || harvestData[parentWMU] || { value: 0, isNull: true };
+              console.log(`WMU ${wmuId} (Parent: ${parentWMU}, Dataset: ${currentDataset.column}): Harvest = ${harvestObj.value}, isNull = ${harvestObj.isNull}`); // Debug
+              return {
+                fillColor: getColor(harvestObj, minHarvest, maxHarvest),
+                color: '#666',
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.7
+              };
+            },
+            onEachFeature: (feature, layer) => {
+              const wmuId = feature.properties.OFFICIAL_NAME || 'Unknown WMU';
+              const parentWMU = getParentWMU(wmuId);
+              const harvestObj = harvestData[wmuId] || harvestData[parentWMU] || { value: 0, isNull: true };
+              const displayWMU = harvestData[wmuId] ? wmuId : parentWMU;
+              const tooltipText = harvestObj.isNull
+                ? 'Harvest data not available for 2024'
+                : `WMU ${displayWMU}: ${harvestObj.value} ${speciesName} harvested`;
+              layer.bindTooltip(tooltipText, {
+                sticky: true,
+                opacity: 0.9
+              });
             }
-          });
+          }).addTo(map);
+        })
+        .catch(error => {
+          console.error('Error loading GeoJSON:', error);
+          alert('Failed to load WMU boundaries. Please ensure wmu-boundaries.json is uploaded to Replit.');
+        });
+    }
 
-        // Load and add WMU boundaries with colors based on harvest data
-        fetch('./wmu-boundaries.geojson')
-          .then(response => response.json())
-          .then(geojson => {
-            L.geoJSON(geojson, {
-              style: feature => {
-                const wmuId = feature.properties.OFFICIAL_NAME;
-                const harvest = harvest2024[wmuId] || 0;
-                return {
-                  fillColor: getColor(harvest, minHarvest, maxHarvest),
-                  color: '#666',
-                  weight: 1,
-                  opacity: 1,
-                  fillOpacity: 0.7
-                };
-              },
-              onEachFeature: (feature, layer) => {
-                const wmuId = feature.properties.OFFICIAL_NAME;
-                const harvest = harvest2024[wmuId] || 0;
-                layer.bindTooltip(`WMU ${wmuId}: ${harvest} deer harvested`, {
-                  sticky: true,
-                  opacity: 0.9
-                });
-              }
-            }).addTo(map);
-          })
-          .catch(error => console.error('Error loading GeoJSON:', error));
+    // Load all harvest datasets
+    Promise.all([
+      fetch('./deerHarvest2024.json')
+        .then(response => {
+          if (!response.ok) {
+            console.error(`Deer fetch failed: ${response.status} ${response.statusText}`);
+            throw new Error(`Failed to load deerHarvest2024.json: ${response.status} ${response.statusText}`);
+          }
+          return response.json().then(data => {
+            console.log('Deer raw data:', data); // Debug raw response
+            return data;
+          });
+        }),
+      fetch('./bearHarvest2024.json')
+        .then(response => {
+          if (!response.ok) {
+            console.error(`Bear fetch failed: ${response.status} ${response.statusText}`);
+            throw new Error(`Failed to load bearHarvest2024.json: ${response.status} ${response.statusText}`);
+          }
+          return response.json().then(data => {
+            console.log('Bear raw data:', data); // Debug raw response
+            return data;
+          });
+        }),
+      fetch('./turkeyHarvest2024.json')
+        .then(response => {
+          if (!response.ok) {
+            console.error(`Turkey fetch failed: ${response.status} ${response.statusText}`);
+            throw new Error(`Failed to load turkeyHarvest2024.json: ${response.status} ${response.statusText}`);
+          }
+          return response.json().then(data => {
+            console.log('Turkey raw data:', data); // Debug raw response
+            return data;
+          });
+        }),
+      fetch('./mooseHarvest2024.json')
+        .then(response => {
+          if (!response.ok) {
+            console.error(`Moose fetch failed: ${response.status} ${response.statusText}`);
+            throw new Error(`Failed to load mooseHarvest2024.json: ${response.status} ${response.statusText}`);
+          }
+          return response.json().then(data => {
+            console.log('Moose raw data:', data); // Debug raw response
+            return data;
+          });
+        }),
+      fetch('./wolfHarvest2024.json')
+        .then(response => {
+          if (!response.ok) {
+            console.error(`Wolf fetch failed: ${response.status} ${response.statusText}`);
+            throw new Error(`Failed to load wolfHarvest2024.json: ${response.status} ${response.statusText}`);
+          }
+          return response.json().then(data => {
+            console.log('Wolf raw data:', data); // Debug raw response
+            return data;
+          });
+        })
+    ])
+      .then(([deerData, bearData, turkeyData, mooseData, wolfData]) => {
+        deerHarvest2024 = processHarvestData(deerData, 'deer-total');
+        doeHarvest2024 = processHarvestData(deerData, 'deer-doe');
+        buckHarvest2024 = processHarvestData(deerData, 'deer-buck');
+        bearHarvest2024 = processHarvestData(bearData, 'bear');
+        turkeyHarvest2024 = processHarvestData(turkeyData, 'turkey');
+        mooseHarvest2024 = processHarvestData(mooseData, 'moose');
+        wolfHarvest2024 = processHarvestData(wolfData, 'wolf');
+        console.log('Deer Harvest 2024 keys:', Object.keys(deerHarvest2024));
+        console.log('Doe Harvest 2024 keys:', Object.keys(doeHarvest2024));
+        console.log('Buck Harvest 2024 keys:', Object.keys(buckHarvest2024));
+        console.log('Bear Harvest 2024 keys:', Object.keys(bearHarvest2024));
+        console.log('Turkey Harvest 2024 keys:', Object.keys(turkeyHarvest2024));
+        console.log('Moose Harvest 2024 keys:', Object.keys(mooseHarvest2024));
+        console.log('Wolf Harvest 2024 keys:', Object.keys(wolfHarvest2024));
+        console.log('WMU 15A (Deer):', deerHarvest2024['15A'] || 'Not found');
+        console.log('WMU 15A (Doe):', doeHarvest2024['15A'] || 'Not found');
+        console.log('WMU 15A (Buck):', buckHarvest2024['15A'] || 'Not found');
+        console.log('WMU 15A (Bear):', bearHarvest2024['15A'] || 'Not found');
+        console.log('WMU 15A (Turkey):', turkeyHarvest2024['15A'] || 'Not found');
+        console.log('WMU 15A (Moose):', mooseHarvest2024['15A'] || 'Not found');
+        console.log('WMU 15A (Wolf):', wolfHarvest2024['15A'] || 'Not found');
+        console.log('WMU 15 (Wolf):', wolfHarvest2024['15'] || 'Not found');
+        console.log('WMU 82A (Wolf):', wolfHarvest2024['82A'] || 'Not found');
+        console.log('Min Harvest:', minHarvest, 'Max Harvest:', maxHarvest);
+
+        // Initial map load
+        currentDataset = {
+          data: deerHarvest2024,
+          species: 'deer',
+          column: 'Total Harvest'
+        };
+        updateMap();
+
+        // Handle dataset toggle
+        document.getElementById('species-select').addEventListener('change', (event) => {
+          const value = event.target.value;
+          if (value === 'deer-total') {
+            currentDataset = { data: deerHarvest2024, species: 'deer', column: 'Total Harvest' };
+          } else if (value === 'deer-doe') {
+            currentDataset = { data: doeHarvest2024, species: 'does', column: 'Antlerless' };
+          } else if (value === 'deer-buck') {
+            currentDataset = { data: buckHarvest2024, species: 'bucks', column: 'Antlered' };
+          } else if (value === 'bear') {
+            currentDataset = { data: bearHarvest2024, species: 'bears', column: 'Harvest' };
+          } else if (value === 'turkey') {
+            currentDataset = { data: turkeyHarvest2024, species: 'turkeys', column: 'Total Harvest' };
+          } else if (value === 'moose') {
+            currentDataset = { data: mooseHarvest2024, species: 'moose', column: 'Total Harvest' };
+          } else if (value === 'wolf') {
+            currentDataset = { data: wolfHarvest2024, species: 'wolves/coyotes', column: 'Harvest' };
+          }
+          updateMap();
+        });
       })
-      .catch(error => console.error('Error loading harvest data:', error));
+      .catch(error => {
+        console.error('Error loading harvest data:', error);
+        alert('Failed to load harvest data. Please ensure deerHarvest2024.json, bearHarvest2024.json, turkeyHarvest2024.json, mooseHarvest2024.json, and wolfHarvest2024.json are uploaded to Replit.');
+      });
   </script>
 </body>
-
 </html>
