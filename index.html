@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Ontario WMU Map</title>
+  <title>Ontario WMU Map with Deer Harvest</title>
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
@@ -32,52 +32,86 @@
 
     // Add OpenStreetMap tiles
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+      attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
 
-    // Function to fetch and add WMU GeoJSON
-    function loadWMUBoundaries() {
-      // Note: Ideally, fetch from https://ws.gisetl.lrc.gov.on.ca/fmedatadownload/Packages/WILDADMU.geojson
-      // Due to CORS or Replit limitations, you may need to upload the GeoJSON to Replit
-      // For this example, assume the GeoJSON is hosted or accessible
-      const geojsonUrl = './wmu-boundaries.geojson';
-      // If CORS issues, upload WILDADMU.geojson to Replit and use relative path, e.g., './WILDADMU.geojson'
+    // Function to interpolate colors for heatmap
+    function getColor(value, minVal, maxVal) {
+      if (value === 0 || isNaN(value)) return '#FFFFCC'; // Light yellow for zero or missing
+      const ratio = (value - minVal) / (maxVal - minVal);
+      const r = Math.min(255, Math.round(255 * ratio));
+      const g = Math.round(255 * (1 - ratio));
+      return `rgb(${r},${g},0)`; // Yellow to red gradient
+    }
 
-      fetch(geojsonUrl)
-        .then(response => {
-          if (!response.ok) {
-            throw new Error('Network response was not ok');
-          }
-          return response.json();
-        })
-        .then(data => {
-          L.geoJSON(data, {
-            style: {
+    // Load and process deer harvest data
+    async function loadHarvestData() {
+      try {
+        const response = await fetch('./deerHarvest2024.json');
+        if (!response.ok) throw new Error('Failed to load deerHarvest2024.json');
+        const data = await response.json();
+
+        // Filter for 2024 records and create lookup object
+        const harvest2024 = {};
+        let minHarvest = Infinity, maxHarvest = -Infinity;
+
+        data.records
+          .filter(record => record[2] === "2024" && record[1] !== "Total")
+          .forEach(record => {
+            const wmuId = record[1].trim(); // Normalize WMU ID
+            const totalHarvest = record[6] === "NULL" ? 0 : parseInt(record[6], 10);
+            harvest2024[wmuId] = totalHarvest;
+            if (totalHarvest > 0) {
+              minHarvest = Math.min(minHarvest, totalHarvest);
+              maxHarvest = Math.max(maxHarvest, totalHarvest);
+            }
+          });
+
+        return {harvest2024, minHarvest, maxHarvest};
+      } catch (error) {
+        console.error('Error loading harvest data:', error);
+        alert('Failed to load deer harvest data. Please ensure deerHarvest2024.json is uploaded to Replit.');
+        return {harvest2024: {}, minHarvest: 0, maxHarvest: 0};
+      }
+    }
+
+    // Load and add WMU GeoJSON with harvest-based coloring
+    async function loadWMUBoundaries() {
+      const {harvest2024, minHarvest, maxHarvest} = await loadHarvestData();
+      const geojsonUrl = './wmu-boundaries.geojson'; // Assumes GeoJSON is uploaded to Replit
+
+      try {
+        const response = await fetch(geojsonUrl);
+        if (!response.ok) throw new Error('Network response was not ok');
+        const data = await response.json();
+
+        L.geoJSON(data, {
+          style: feature => {
+            const wmuId = feature.properties.OFFICIAL_NAME;
+            const harvest = harvest2024[wmuId] || 0;
+            return {
               color: '#ff7800',
               weight: 2,
               opacity: 0.8,
-              fillOpacity: 0.1
-            },
-            onEachFeature: (feature, layer) => {
-              // Add tooltip with WMU identifier
-              if (feature.properties && feature.properties.WMU_ID) {
-                layer.bindTooltip(`WMU ${feature.properties.WMU_ID}`, {
-                  permanent: false,
-                  direction: 'center'
-                });
-              }
-            }
-          }).addTo(map);
-        })
-        .catch(error => {
-          console.error('Error loading GeoJSON:', error);
-          alert('Failed to load WMU boundaries. Please check the GeoJSON source or upload the file to Replit.');
-        });
-    }
+              fillColor: getColor(harvest, minHarvest, maxHarvest),
+              fillOpacity: 0.5
+            };
+          },
+          onEachFeature: (feature, layer) => {
+            const wmuId = feature.properties.OFFICIAL_NAME || 'Unknown WMU';
+            const harvest = harvest2024[wmuId] || 0;
+            console.log(`WMU ${wmuId}: Harvest = ${harvest}`); // Debug
 
-    // Load WMU boundaries when the page loads
-    loadWMUBoundaries();
-  </script>
-</body>
+            // Bind tooltip with WMU ID and harvest
+            layer.bindTooltip(`WMU ${wmuId}: ${harvest} deer`, {
+              sticky: true,
+              opacity: 0.9
+            });
 
-</html>
+            // Hover events
+            layer.on({
+              mouseover: () => {
+                layer.setStyle({fillOpacity: 0.7});
+                layer.openTooltip();
+              },
+              mouse
