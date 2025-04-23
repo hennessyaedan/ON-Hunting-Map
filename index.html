@@ -6,6 +6,8 @@
   <title>Ontario WMU Map with Harvest Data</title>
   <!-- Leaflet CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- Chroma.js for color interpolation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chroma-js/2.4.2/chroma.min.js"></script>
   <style>
     body {
       margin: 0;
@@ -16,9 +18,8 @@
       height: 100vh;
       width: 100%;
     }
-    #species-select {
+    #species-select, #year-select {
       position: absolute;
-      top: 10px;
       right: 10px;
       z-index: 1000;
       padding: 8px;
@@ -26,6 +27,12 @@
       background-color: white;
       border: 1px solid #ccc;
       border-radius: 4px;
+    }
+    #species-select {
+      top: 10px;
+    }
+    #year-select {
+      top: 50px;
     }
   </style>
 </head>
@@ -39,6 +46,9 @@
     <option value="turkey">Turkey Harvest</option>
     <option value="moose">Moose Harvest</option>
     <option value="wolf">Wolf/Coyote Harvest</option>
+  </select>
+  <select id="year-select">
+    <!-- Populated dynamically -->
   </select>
 
   <!-- Leaflet JS -->
@@ -60,38 +70,59 @@
       return normalized || 'Unknown';
     }
 
-    // Function to interpolate colors for heatmap
+    // Define color scale: red (low) to green (high) with 50 stops
+    const colorScale = chroma.scale([
+      '#FF0000',    // Red (low)
+      '#FF8C00',    // Orange
+      '#FFFF00',    // Yellow
+      '#008000'     // Green (high)
+    ]).mode('lab').colors(50);
+
+    // Log sample color stops for debugging
+    console.log('Sample Color Stops:', {
+      stop0: colorScale[0],    // Red
+      stop10: colorScale[10],  // Red-orange
+      stop20: colorScale[20],  // Orange
+      stop30: colorScale[30],  // Yellow-green
+      stop40: colorScale[40],  // Light green
+      stop49: colorScale[49]   // Green
+    });
+
+    // Function to get color for harvest value
     function getColor(harvestObj, minVal, maxVal) {
       if (harvestObj.isNull) return '#808080'; // Gray for no data
       const value = harvestObj.value;
       if (value === 0 || isNaN(value)) return '#FFFFCC'; // Light yellow for zero
       const ratio = (value - minVal) / (maxVal - minVal);
-      const r = Math.min(255, Math.round(255 * ratio));
-      const g = Math.round(255 * (1 - ratio));
-      return `rgb(${r},${g},0)`; // Yellow to red gradient
+      const colorIndex = Math.min(Math.floor(ratio * 50), 49); // Map to 0–49
+      const color = colorScale[colorIndex];
+      console.log(`Harvest: ${value}, Ratio: ${ratio.toFixed(2)}, Color: ${color}`); // Debug
+      return color;
     }
 
     // Global variables
-    let deerHarvest2024 = {};
-    let doeHarvest2024 = {};
-    let buckHarvest2024 = {};
-    let bearHarvest2024 = {};
-    let turkeyHarvest2024 = {};
-    let mooseHarvest2024 = {};
-    let wolfHarvest2024 = {};
+    let deerHarvest = { data: {}, min: Infinity, max: -Infinity };
+    let doeHarvest = { data: {}, min: Infinity, max: -Infinity };
+    let buckHarvest = { data: {}, min: Infinity, max: -Infinity };
+    let bearHarvest = { data: {}, min: Infinity, max: -Infinity };
+    let turkeyHarvest = { data: {}, min: Infinity, max: -Infinity };
+    let mooseHarvest = { data: {}, min: Infinity, max: -Infinity };
+    let wolfHarvest = { data: {}, min: Infinity, max: -Infinity };
     let currentDataset = {
-      data: deerHarvest2024,
+      dataset: deerHarvest,
       species: 'deer',
-      column: 'Total Harvest'
+      column: 'Total Harvest',
+      year: '2024'
     };
+    let availableYears = new Set();
     let geojsonLayer = null; // Store the GeoJSON layer
-    let minHarvest = Infinity, maxHarvest = -Infinity;
 
-    // Function to process harvest data
-    function processHarvestData(data, datasetType) {
+    // Function to process harvest data for a specific year
+    function processHarvestData(data, datasetType, selectedYear) {
       const harvestData = {};
-      minHarvest = Infinity;
-      maxHarvest = -Infinity;
+      let minHarvest = Infinity;
+      let maxHarvest = -Infinity;
+      const valueBins = { '0-5': 0, '5-10': 0, '10-20': 0, '20-50': 0, '50-100': 0, '100-500': 0, '500+': 0 };
 
       let harvestColumn, isDeer;
       if (datasetType === 'deer-total') {
@@ -117,10 +148,10 @@
         isDeer = false;
       }
 
-      console.log(`Processing ${datasetType} data:`, data.records.length, 'records'); // Debug
+      console.log(`Processing ${datasetType} data for ${selectedYear}:`, data.records.length, 'records'); // Debug
       const filteredRecords = data.records
-        .filter(record => String(record[2]) === "2024" && record[1] !== "Total");
-      console.log(`Filtered ${datasetType} 2024 records:`, filteredRecords.length); // Debug
+        .filter(record => String(record[2]) === selectedYear && record[1] !== "Total");
+      console.log(`Filtered ${datasetType} ${selectedYear} records:`, filteredRecords.length); // Debug
 
       filteredRecords.forEach(record => {
         const wmuId = record[1].trim();
@@ -130,16 +161,43 @@
         if (!isNull && totalHarvest > 0) {
           minHarvest = Math.min(minHarvest, totalHarvest);
           maxHarvest = Math.max(maxHarvest, totalHarvest);
+          // Bin harvest values
+          if (totalHarvest <= 5) valueBins['0-5']++;
+          else if (totalHarvest <= 10) valueBins['5-10']++;
+          else if (totalHarvest <= 20) valueBins['10-20']++;
+          else if (totalHarvest <= 50) valueBins['20-50']++;
+          else if (totalHarvest <= 100) valueBins['50-100']++;
+          else if (totalHarvest <= 500) valueBins['100-500']++;
+          else valueBins['500+']++;
         }
       });
 
-      return harvestData;
+      console.log(`${datasetType} ${selectedYear} Min Harvest: ${minHarvest}, Max Harvest: ${maxHarvest}`); // Debug
+      console.log(`${datasetType} ${selectedYear} Harvest Distribution:`, valueBins); // Debug
+      return { data: harvestData, min: minHarvest, max: maxHarvest };
     }
 
-    // Function to update the map with the selected dataset
+    // Function to populate year dropdown
+    function populateYearDropdown() {
+      const yearSelect = document.getElementById('year-select');
+      const years = Array.from(availableYears).sort((a, b) => b - a); // Descending order
+      years.forEach(year => {
+        const option = document.createElement('option');
+        option.value = year;
+        option.textContent = year;
+        if (year === '2024') option.selected = true;
+        yearSelect.appendChild(option);
+      });
+      console.log('Available Years:', years); // Debug
+    }
+
+    // Function to update the map with the selected dataset and year
     function updateMap() {
-      const harvestData = currentDataset.data;
+      const harvestData = currentDataset.dataset.data;
+      const minHarvest = currentDataset.dataset.min;
+      const maxHarvest = currentDataset.dataset.max;
       const speciesName = currentDataset.species;
+      const selectedYear = currentDataset.year;
 
       // Remove existing GeoJSON layer
       if (geojsonLayer) {
@@ -165,7 +223,7 @@
               const wmuId = feature.properties.OFFICIAL_NAME || 'Unknown';
               const parentWMU = getParentWMU(wmuId);
               const harvestObj = harvestData[wmuId] || harvestData[parentWMU] || { value: 0, isNull: true };
-              console.log(`WMU ${wmuId} (Parent: ${parentWMU}, Dataset: ${currentDataset.column}): Harvest = ${harvestObj.value}, isNull = ${harvestObj.isNull}`); // Debug
+              console.log(`WMU ${wmuId} (Parent: ${parentWMU}, Dataset: ${currentDataset.column}, Year: ${selectedYear}): Harvest = ${harvestObj.value}, isNull = ${harvestObj.isNull}`); // Debug
               return {
                 fillColor: getColor(harvestObj, minHarvest, maxHarvest),
                 color: '#666',
@@ -180,7 +238,7 @@
               const harvestObj = harvestData[wmuId] || harvestData[parentWMU] || { value: 0, isNull: true };
               const displayWMU = harvestData[wmuId] ? wmuId : parentWMU;
               const tooltipText = harvestObj.isNull
-                ? 'Harvest data not available for 2024'
+                ? `Harvest data not available for ${selectedYear}`
                 : `WMU ${displayWMU}: ${harvestObj.value} ${speciesName} harvested`;
               layer.bindTooltip(tooltipText, {
                 sticky: true,
@@ -195,7 +253,7 @@
         });
     }
 
-    // Load all harvest datasets
+    // Load all harvest datasets and extract years
     Promise.all([
       fetch('./deerHarvest2024.json')
         .then(response => {
@@ -205,6 +263,7 @@
           }
           return response.json().then(data => {
             console.log('Deer raw data:', data); // Debug raw response
+            data.records.forEach(record => availableYears.add(String(record[2])));
             return data;
           });
         }),
@@ -216,6 +275,7 @@
           }
           return response.json().then(data => {
             console.log('Bear raw data:', data); // Debug raw response
+            data.records.forEach(record => availableYears.add(String(record[2])));
             return data;
           });
         }),
@@ -227,6 +287,7 @@
           }
           return response.json().then(data => {
             console.log('Turkey raw data:', data); // Debug raw response
+            data.records.forEach(record => availableYears.add(String(record[2])));
             return data;
           });
         }),
@@ -238,6 +299,7 @@
           }
           return response.json().then(data => {
             console.log('Moose raw data:', data); // Debug raw response
+            data.records.forEach(record => availableYears.add(String(record[2])));
             return data;
           });
         }),
@@ -249,61 +311,103 @@
           }
           return response.json().then(data => {
             console.log('Wolf raw data:', data); // Debug raw response
+            data.records.forEach(record => availableYears.add(String(record[2])));
             return data;
           });
         })
     ])
       .then(([deerData, bearData, turkeyData, mooseData, wolfData]) => {
-        deerHarvest2024 = processHarvestData(deerData, 'deer-total');
-        doeHarvest2024 = processHarvestData(deerData, 'deer-doe');
-        buckHarvest2024 = processHarvestData(deerData, 'deer-buck');
-        bearHarvest2024 = processHarvestData(bearData, 'bear');
-        turkeyHarvest2024 = processHarvestData(turkeyData, 'turkey');
-        mooseHarvest2024 = processHarvestData(mooseData, 'moose');
-        wolfHarvest2024 = processHarvestData(wolfData, 'wolf');
-        console.log('Deer Harvest 2024 keys:', Object.keys(deerHarvest2024));
-        console.log('Doe Harvest 2024 keys:', Object.keys(doeHarvest2024));
-        console.log('Buck Harvest 2024 keys:', Object.keys(buckHarvest2024));
-        console.log('Bear Harvest 2024 keys:', Object.keys(bearHarvest2024));
-        console.log('Turkey Harvest 2024 keys:', Object.keys(turkeyHarvest2024));
-        console.log('Moose Harvest 2024 keys:', Object.keys(mooseHarvest2024));
-        console.log('Wolf Harvest 2024 keys:', Object.keys(wolfHarvest2024));
-        console.log('WMU 15A (Deer):', deerHarvest2024['15A'] || 'Not found');
-        console.log('WMU 15A (Doe):', doeHarvest2024['15A'] || 'Not found');
-        console.log('WMU 15A (Buck):', buckHarvest2024['15A'] || 'Not found');
-        console.log('WMU 15A (Bear):', bearHarvest2024['15A'] || 'Not found');
-        console.log('WMU 15A (Turkey):', turkeyHarvest2024['15A'] || 'Not found');
-        console.log('WMU 15A (Moose):', mooseHarvest2024['15A'] || 'Not found');
-        console.log('WMU 15A (Wolf):', wolfHarvest2024['15A'] || 'Not found');
-        console.log('WMU 15 (Wolf):', wolfHarvest2024['15'] || 'Not found');
-        console.log('WMU 82A (Wolf):', wolfHarvest2024['82A'] || 'Not found');
-        console.log('Min Harvest:', minHarvest, 'Max Harvest:', maxHarvest);
+        // Populate year dropdown
+        populateYearDropdown();
+
+        // Process initial data for 2024
+        deerHarvest = processHarvestData(deerData, 'deer-total', '2024');
+        doeHarvest = processHarvestData(deerData, 'deer-doe', '2024');
+        buckHarvest = processHarvestData(deerData, 'deer-buck', '2024');
+        bearHarvest = processHarvestData(bearData, 'bear', '2024');
+        turkeyHarvest = processHarvestData(turkeyData, 'turkey', '2024');
+        mooseHarvest = processHarvestData(mooseData, 'moose', '2024');
+        wolfHarvest = processHarvestData(wolfData, 'wolf', '2024');
+
+        console.log('Deer Harvest 2024 keys:', Object.keys(deerHarvest.data));
+        console.log('Doe Harvest 2024 keys:', Object.keys(doeHarvest.data));
+        console.log('Buck Harvest 2024 keys:', Object.keys(buckHarvest.data));
+        console.log('Bear Harvest 2024 keys:', Object.keys(bearHarvest.data));
+        console.log('Turkey Harvest 2024 keys:', Object.keys(turkeyHarvest.data));
+        console.log('Moose Harvest 2024 keys:', Object.keys(mooseHarvest.data));
+        console.log('Wolf Harvest 2024 keys:', Object.keys(wolfHarvest.data));
+        console.log('WMU 15A (Deer):', deerHarvest.data['15A'] || 'Not found');
+        console.log('WMU 15A (Doe):', doeHarvest.data['15A'] || 'Not found');
+        console.log('WMU 15A (Buck):', buckHarvest.data['15A'] || 'Not found');
+        console.log('WMU 15A (Bear):', bearHarvest.data['15A'] || 'Not found');
+        console.log('WMU 15A (Turkey):', turkeyHarvest.data['15A'] || 'Not found');
+        console.log('WMU 15A (Moose):', mooseHarvest.data['15A'] || 'Not found');
+        console.log('WMU 15A (Wolf):', wolfHarvest.data['15A'] || 'Not found');
+        console.log('WMU 15 (Wolf):', wolfHarvest.data['15'] || 'Not found');
+        console.log('WMU 82A (Wolf):', wolfHarvest.data['82A'] || 'Not found');
+        console.log('WMU 13 (Wolf):', wolfHarvest.data['13'] || 'Not found');
+        console.log('WMU 7 (Wolf):', wolfHarvest.data['7'] || 'Not found');
+        console.log('WMU 2 (Wolf):', wolfHarvest.data['2'] || 'Not found');
+        console.log('WMU 01A (Wolf):', wolfHarvest.data['01A'] || 'Not found');
 
         // Initial map load
         currentDataset = {
-          data: deerHarvest2024,
+          dataset: deerHarvest,
           species: 'deer',
-          column: 'Total Harvest'
+          column: 'Total Harvest',
+          year: '2024'
         };
         updateMap();
 
-        // Handle dataset toggle
+        // Store raw data for reprocessing
+        const rawData = {
+          deer: deerData,
+          bear: bearData,
+          turkey: turkeyData,
+          moose: mooseData,
+          wolf: wolfData
+        };
+
+        // Handle species toggle
         document.getElementById('species-select').addEventListener('change', (event) => {
           const value = event.target.value;
+          const year = currentDataset.year;
           if (value === 'deer-total') {
-            currentDataset = { data: deerHarvest2024, species: 'deer', column: 'Total Harvest' };
+            currentDataset = { dataset: processHarvestData(rawData.deer, 'deer-total', year), species: 'deer', column: 'Total Harvest', year };
           } else if (value === 'deer-doe') {
-            currentDataset = { data: doeHarvest2024, species: 'does', column: 'Antlerless' };
+            currentDataset = { dataset: processHarvestData(rawData.deer, 'deer-doe', year), species: 'does', column: 'Antlerless', year };
           } else if (value === 'deer-buck') {
-            currentDataset = { data: buckHarvest2024, species: 'bucks', column: 'Antlered' };
+            currentDataset = { dataset: processHarvestData(rawData.deer, 'deer-buck', year), species: 'bucks', column: 'Antlered', year };
           } else if (value === 'bear') {
-            currentDataset = { data: bearHarvest2024, species: 'bears', column: 'Harvest' };
+            currentDataset = { dataset: processHarvestData(rawData.bear, 'bear', year), species: 'bears', column: 'Harvest', year };
           } else if (value === 'turkey') {
-            currentDataset = { data: turkeyHarvest2024, species: 'turkeys', column: 'Total Harvest' };
+            currentDataset = { dataset: processHarvestData(rawData.turkey, 'turkey', year), species: 'turkeys', column: 'Total Harvest', year };
           } else if (value === 'moose') {
-            currentDataset = { data: mooseHarvest2024, species: 'moose', column: 'Total Harvest' };
+            currentDataset = { dataset: processHarvestData(rawData.moose, 'moose', year), species: 'moose', column: 'Total Harvest', year };
           } else if (value === 'wolf') {
-            currentDataset = { data: wolfHarvest2024, species: 'wolves/coyotes', column: 'Harvest' };
+            currentDataset = { dataset: processHarvestData(rawData.wolf, 'wolf', year), species: 'wolves/coyotes', column: 'Harvest', year };
+          }
+          updateMap();
+        });
+
+        // Handle year toggle
+        document.getElementById('year-select').addEventListener('change', (event) => {
+          const year = event.target.value;
+          const value = document.getElementById('species-select').value;
+          if (value === 'deer-total') {
+            currentDataset = { dataset: processHarvestData(rawData.deer, 'deer-total', year), species: 'deer', column: 'Total Harvest', year };
+          } else if (value === 'deer-doe') {
+            currentDataset = { dataset: processHarvestData(rawData.deer, 'deer-doe', year), species: 'does', column: 'Antlerless', year };
+          } else if (value === 'deer-buck') {
+            currentDataset = { dataset: processHarvestData(rawData.deer, 'deer-buck', year), species: 'bucks', column: 'Antlered', year };
+          } else if (value === 'bear') {
+            currentDataset = { dataset: processHarvestData(rawData.bear, 'bear', year), species: 'bears', column: 'Harvest', year };
+          } else if (value === 'turkey') {
+            currentDataset = { dataset: processHarvestData(rawData.turkey, 'turkey', year), species: 'turkeys', column: 'Total Harvest', year };
+          } else if (value === 'moose') {
+            currentDataset = { dataset: processHarvestData(rawData.moose, 'moose', year), species: 'moose', column: 'Total Harvest', year };
+          } else if (value === 'wolf') {
+            currentDataset = { dataset: processHarvestData(rawData.wolf, 'wolf', year), species: 'wolves/coyotes', column: 'Harvest', year };
           }
           updateMap();
         });
