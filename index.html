@@ -1,16 +1,83 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width">
-  <title>replit</title>
-  <link href="style.css" rel="stylesheet" type="text/css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Ontario WMU Map</title>
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+    }
+
+    #map {
+      height: 100vh;
+      width: 100%;
+    }
+  </style>
 </head>
 
 <body>
-  Hello world
-  <script src="script.js"></script>
+  <div id="map"></div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Initialize the map and center on Ontario
+    const map = L.map('map').setView([50.0, -85.0], 5);
+
+    // Add OpenStreetMap tiles
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    // Function to fetch and add WMU GeoJSON
+    function loadWMUBoundaries() {
+      // Note: Ideally, fetch from https://ws.gisetl.lrc.gov.on.ca/fmedatadownload/Packages/WILDADMU.geojson
+      // Due to CORS or Replit limitations, you may need to upload the GeoJSON to Replit
+      // For this example, assume the GeoJSON is hosted or accessible
+      const geojsonUrl = './wmu-boundaries.geojson';
+      // If CORS issues, upload WILDADMU.geojson to Replit and use relative path, e.g., './WILDADMU.geojson'
+
+      fetch(geojsonUrl)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error('Network response was not ok');
+          }
+          return response.json();
+        })
+        .then(data => {
+          L.geoJSON(data, {
+            style: {
+              color: '#ff7800',
+              weight: 2,
+              opacity: 0.8,
+              fillOpacity: 0.1
+            },
+            onEachFeature: (feature, layer) => {
+              // Add tooltip with WMU identifier
+              if (feature.properties && feature.properties.WMU_ID) {
+                layer.bindTooltip(`WMU ${feature.properties.WMU_ID}`, {
+                  permanent: false,
+                  direction: 'center'
+                });
+              }
+            }
+          }).addTo(map);
+        })
+        .catch(error => {
+          console.error('Error loading GeoJSON:', error);
+          alert('Failed to load WMU boundaries. Please check the GeoJSON source or upload the file to Replit.');
+        });
+    }
+
+    // Load WMU boundaries when the page loads
+    loadWMUBoundaries();
+  </script>
 </body>
 
 </html>
