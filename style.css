@@ -1,4 +1,53 @@
-html {
-  height: 100%;
+body {
+  margin: 0;
+  padding: 0;
+  font-family: Arial, sans-serif;
+}
+#map {
+  height: 100vh;
   width: 100%;
+}
+#wmu-search, #species-select, #year-select, #per-hunter-container {
+  position: absolute;
+  right: 10px;
+  z-index: 1000;
+  padding: 8px;
+  font-size: 16px;
+  background-color: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+#wmu-search {
+  top: 10px;
+  width: 100px;
+}
+#species-select {
+  top: 50px;
+}
+#year-select {
+  top: 90px;
+}
+#per-hunter-container {
+  top: 130px;
+  display: flex;
+  align-items: center;
+  padding: 8px;
+}
+#per-hunter-checkbox {
+  margin-right: 5px;
+}
+#trend-chart {
+  position: absolute;
+  top: 170px;
+  right: 10px;
+  z-index: 1000;
+  background-color: white;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 10px;
+  width: 200px;
+  height: 150px;
+}
+path.leaflet-interactive:focus {
+  outline: none;
 }
