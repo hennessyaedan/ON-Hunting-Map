@@ -28,15 +28,7 @@ const colorScale = chroma
   .mode("lab")
   .colors(50);
 
-// Log sample color stops for debugging
-console.log("Sample Color Stops:", {
-  stop0: colorScale[0],
-  stop10: colorScale[10],
-  stop20: colorScale[20],
-  stop30: colorScale[30],
-  stop40: colorScale[40],
-  stop49: colorScale[49],
-});
+
 
 // Function to get color for harvest or per-hunter value
 function getColor(harvestObj, minVal, maxVal, isPerHunter) {
@@ -47,9 +39,6 @@ function getColor(harvestObj, minVal, maxVal, isPerHunter) {
   const ratio = (value - minVal) / (maxVal - minVal);
   const colorIndex = Math.min(Math.floor(ratio * 50), 49); // Map to 0–49
   const color = colorScale[colorIndex];
-  console.log(
-    `WMU: ${harvestObj.wmuId}, ${isPerHunter ? "Per Hunter" : "Harvest"}: ${value.toFixed(2)}, Ratio: ${ratio.toFixed(2)}, Color: ${color}`,
-  ); // Debug
   return color;
 }
 
@@ -166,18 +155,11 @@ function processHarvestData(data, datasetType, selectedYear) {
     isDeer = false;
   }
 
-  console.log(
-    `Processing ${datasetType} data for ${selectedYear}:`,
-    data.records.length,
-    "records",
-  );
+
   const filteredRecords = data.records.filter(
     (record) => String(record[2]) === selectedYear && record[1] !== "Total",
   );
-  console.log(
-    `Filtered ${datasetType} ${selectedYear} records:`,
-    filteredRecords.length,
-  );
+
 
   filteredRecords.forEach((record) => {
     const wmuId = record[1].trim();
@@ -221,20 +203,7 @@ function processHarvestData(data, datasetType, selectedYear) {
     }
   });
 
-  console.log(
-    `${datasetType} ${selectedYear} Min Harvest: ${minHarvest}, Max Harvest: ${maxHarvest}`,
-  );
-  console.log(
-    `${datasetType} ${selectedYear} Min Per Hunter: ${minPerHunter.toFixed(4)}, Max Per Hunter: ${maxPerHunter.toFixed(4)}`,
-  );
-  console.log(
-    `${datasetType} ${selectedYear} Harvest Distribution:`,
-    valueBins,
-  );
-  console.log(
-    `${datasetType} ${selectedYear} Per Hunter Distribution:`,
-    perHunterBins,
-  );
+
   return {
     data: harvestData,
     min: minHarvest,
@@ -255,8 +224,7 @@ function populateYearDropdown() {
     if (year === "2024") option.selected = true;
     yearSelect.appendChild(option);
   });
-  console.log("Available Years:", years);
-}
+  }
 
 // Function to update trend chart using Plotly.js
 function updateTrendChart(wmuId, datasetType, speciesName, isPerHunter) {
@@ -294,10 +262,6 @@ function updateTrendChart(wmuId, datasetType, speciesName, isPerHunter) {
     const hunters = parseInt(record[3], 10);
     return isPerHunter && hunters > 0 ? harvest / hunters : harvest;
   });
-  console.log(
-    `Trend Chart for WMU ${wmuId} (${datasetType}, ${isPerHunter ? "Per Hunter" : "Harvest"}):`,
-    { years, values },
-  );
 
   const trace = {
     x: years,
@@ -386,9 +350,7 @@ function updateMap() {
               isNull: true,
               perHunterIsNull: true,
             };
-          console.log(
-            `WMU ${wmuId} (Parent: ${parentWMU}, Dataset: ${currentDataset.column}, Year: ${selectedYear}, PerHunter: ${isPerHunter}): Harvest = ${harvestObj.value}, PerHunter = ${harvestObj.perHunterValue.toFixed(2)}, isNull = ${harvestObj.isNull}, perHunterIsNull = ${harvestObj.perHunterIsNull}`,
-          );
+
           return {
             fillColor: getColor(harvestObj, minVal, maxVal, isPerHunter),
             color: "#666",
@@ -448,7 +410,7 @@ function updateMap() {
                 normalizedWMU === searchValue ||
                 wmuId.toUpperCase() === `WMU${searchValue}`
               ) {
-                console.log(`Search matched WMU: ${wmuId}`); // Debug
+                console.log(`Search matched WMU: ${wmuId}`);
                 highlightedLayer = layer;
                 layer.setStyle({ color: "#0000FF", weight: 3 });
                 map.fitBounds(layer.getBounds());
@@ -474,7 +436,6 @@ Promise.all([
         `Failed to load deerHarvest2024.json: ${response.status}`,
       );
     return response.json().then((data) => {
-      console.log("Deer raw data:", data);
       data.records.forEach((record) => availableYears.add(String(record[2])));
       return data;
     });
@@ -485,7 +446,6 @@ Promise.all([
         `Failed to load bearHarvest2024.json: ${response.status}`,
       );
     return response.json().then((data) => {
-      console.log("Bear raw data:", data);
       data.records.forEach((record) => availableYears.add(String(record[2])));
       return data;
     });
@@ -496,7 +456,6 @@ Promise.all([
         `Failed to load turkeyHarvest2024.json: ${response.status}`,
       );
     return response.json().then((data) => {
-      console.log("Turkey raw data:", data);
       data.records.forEach((record) => availableYears.add(String(record[2])));
       return data;
     });
@@ -507,7 +466,6 @@ Promise.all([
         `Failed to load mooseHarvest2024.json: ${response.status}`,
       );
     return response.json().then((data) => {
-      console.log("Moose raw data:", data);
       data.records.forEach((record) => availableYears.add(String(record[2])));
       return data;
     });
@@ -518,7 +476,6 @@ Promise.all([
         `Failed to load wolfHarvest2024.json: ${response.status}`,
       );
     return response.json().then((data) => {
-      console.log("Wolf raw data:", data);
       data.records.forEach((record) => availableYears.add(String(record[2])));
       return data;
     });
@@ -536,8 +493,7 @@ Promise.all([
       moose: mooseData,
       wolf: wolfData,
     };
-    console.log("Raw data initialized:", Object.keys(rawData));
-
+    
     // Process initial data for 2024
     deerHarvest = processHarvestData(deerData, "deer-total", "2024");
     doeHarvest = processHarvestData(deerData, "deer-doe", "2024");
@@ -547,21 +503,6 @@ Promise.all([
     mooseHarvest = processHarvestData(mooseData, "moose", "2024");
     wolfHarvest = processHarvestData(wolfData, "wolf", "2024");
 
-    console.log("Deer Harvest 2024 keys:", Object.keys(deerHarvest.data));
-    console.log("Doe Harvest 2024 keys:", Object.keys(doeHarvest.data));
-    console.log("Buck Harvest 2024 keys:", Object.keys(buckHarvest.data));
-    console.log("Bear Harvest 2024 keys:", Object.keys(bearHarvest.data));
-    console.log("Turkey Harvest 2024 keys:", Object.keys(turkeyHarvest.data));
-    console.log("Moose Harvest 2024 keys:", Object.keys(mooseHarvest.data));
-    console.log("Wolf Harvest 2024 keys:", Object.keys(wolfHarvest.data));
-    console.log("WMU 15A (Deer):", deerHarvest.data["15A"] || "Not found");
-    console.log("WMU 15A (Wolf):", wolfHarvest.data["15A"] || "Not found");
-    console.log("WMU 15 (Wolf):", wolfHarvest.data["15"] || "Not found");
-    console.log("WMU 82A (Wolf):", wolfHarvest.data["82A"] || "Not found");
-    console.log("WMU 13 (Wolf):", wolfHarvest.data["13"] || "Not found");
-    console.log("WMU 7 (Wolf):", wolfHarvest.data["7"] || "Not found");
-    console.log("WMU 2 (Wolf):", wolfHarvest.data["2"] || "Not found");
-    console.log("WMU 01A (Wolf):", wolfHarvest.data["01A"] || "Not found");
 
     // Initial map load
     currentDataset = {
