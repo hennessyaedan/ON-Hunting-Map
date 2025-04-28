@@ -7,6 +7,8 @@
 
 # How to use the app:
 
+The current deployment of the website can be found here [ON-Hunting-Map](https://onhuntingmap.netlify.app/)
+
 * This website displays Ontario annual hunter harvesting data for each WMU
 
 * Searching for a WMU in the search bar will zoom to the location of that WMU
