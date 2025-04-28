@@ -27,6 +27,10 @@ changed each year.
 
 * The harvesting numbers will be displayed when the WMU is hovered over on desktop or tapped on your mobile device.
 
+* Some WMUs are split into sub-WMUs (i.e. WMU 78D, WMU 92A) but sometimes harvesting data only exists parent WMUs and not sub-WMUs. In this case,
+  the sub-WMUs are grouped together on the map and the harvesting data for the parent WMU (i.e. WMU 72, WMU 92) is shown instead. This is why it may seem
+  like some species are being harvested in city centres. 
+
 # How to contribute to this app
 
 Contributions to ON-Hunting-Map are welcome, particularly to `script.js`, which powers the interactive map. 
